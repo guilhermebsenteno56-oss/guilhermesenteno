@@ -362,7 +362,7 @@ details .fields{margin-top:12px}
         <button class="primary" id="mlSyncNow" type="button">Sincronizar agora</button>
         <span class="save" id="mlSyncState" role="status" aria-live="polite"></span>
       </div>
-      <p class="hint" style="margin:0 0 12px">Pedidos recebidos automaticamente via Mercado Livre (webhook) ou puxados ao clicar em "Sincronizar agora". Preencha o custo do produto de cada pedido (e o imposto, se quiser usar um valor diferente do padrão configurado em Produtos e parâmetros) para que o lucro entre automaticamente na aba Resumo, somado aos outros canais. Pedidos sem custo preenchido contam nas vendas, mas com lucro zerado até você preencher.</p>
+      <p class="hint" style="margin:0 0 12px">Pedidos recebidos automaticamente via Mercado Livre (webhook) ou puxados ao clicar em "Sincronizar agora". Cada pedido mostra o valor pago pelo cliente e o valor que você realmente recebe (já descontando a taxa do Mercado Livre). Preencha o custo do produto de cada pedido (e o imposto, se quiser usar um valor diferente do padrão configurado em Produtos e parâmetros) para que o lucro — calculado sobre o valor recebido — entre automaticamente na aba Resumo, somado aos outros canais, no mês em que a venda aconteceu. Pedidos sem custo preenchido contam nas vendas, mas com lucro zerado até você preencher.</p>
       <div class="hist" id="mlOrdersList"></div>
     </section>
   </div>
@@ -704,10 +704,11 @@ function agg(from,to,chf){
       var d=String(ord.date||"").slice(0,10);
       if(!d||d<from||d>to)return;
       var q=n(ord.quantity)||1,rev=n(ord.total_amount);
+      var recebido=(ord.net_received!==undefined&&ord.net_received!==null)?n(ord.net_received):rev;
       var hasCusto=ord.custo_unit!==undefined&&ord.custo_unit!==null&&String(ord.custo_unit)!=="";
       var impostoPct=(ord.imposto_pct!==undefined&&ord.imposto_pct!==null&&String(ord.imposto_pct)!=="")?n(ord.imposto_pct):n(S.tax);
       var contrib=0;
-      if(hasCusto)contrib=rev-n(ord.custo_unit)*q-rev*impostoPct/100;
+      if(hasCusto)contrib=recebido-n(ord.custo_unit)*q-recebido*impostoPct/100;
       else o.nodata+=q;
       var key="mlo:"+(ord.title||ord.order_id);
       var row=o.per[key]||(o.per[key]={name:ord.title||("Pedido "+ord.order_id),ch:"ml",units:0,rev:0,contrib:0});
@@ -966,11 +967,12 @@ var mlOrdersRenderedKey="";
 var MLSTAT={paid:"Pago",confirmed:"Confirmado",cancelled:"Cancelado",invalid:"Inválido"};
 function mlStatName(s){return MLSTAT[s]||s||"—"}
 function mlOrderList(){return mlOrders.slice().sort(function(a,b){return (b.date||"")<(a.date||"")?-1:(b.date||"")>(a.date||"")?1:0}).slice(0,100)}
+function mlRecebidoOf(o){return(o.net_received!==undefined&&o.net_received!==null)?n(o.net_received):n(o.total_amount)}
 function mlLucroOf(o){
-  var q=n(o.quantity)||1,rev=n(o.total_amount);
+  var q=n(o.quantity)||1,recebido=mlRecebidoOf(o);
   var hasCusto=o.custo_unit!==undefined&&o.custo_unit!==null&&String(o.custo_unit)!=="";
   var impostoPct=(o.imposto_pct!==undefined&&o.imposto_pct!==null&&String(o.imposto_pct)!=="")?n(o.imposto_pct):n(S.tax);
-  return{hasCusto:hasCusto,impostoPct:impostoPct,lucro:hasCusto?(rev-n(o.custo_unit)*q-rev*impostoPct/100):null};
+  return{hasCusto:hasCusto,impostoPct:impostoPct,recebido:recebido,lucro:hasCusto?(recebido-n(o.custo_unit)*q-recebido*impostoPct/100):null};
 }
 function renderMLOrders(){
   var el=$("#mlOrdersList");if(!el)return;
@@ -986,7 +988,8 @@ function renderMLOrders(){
       h+='<div class="hr" style="align-items:flex-end">'
         +'<b>'+(dt?shortD(dt):"—")+'</b>'
         +'<span style="flex:1 1 220px;min-width:160px">'+esc(o.title||("Pedido "+o.order_id))+" · "+n(o.quantity||1)+" un."+'</span>'
-        +'<span><strong style="color:var(--ink)">'+brl(n(o.total_amount))+'</strong></span>'
+        +'<span>Pago pelo cliente<br><strong style="color:var(--ink)">'+brl(n(o.total_amount))+'</strong></span>'
+        +'<span>Recebido (após taxa ML)<br><strong style="color:var(--ink)">'+brl(mlRecebidoOf(o))+'</strong></span>'
         +'<span>'+esc(mlStatName(o.status))+'</span>'
         +'<label class="f" style="width:110px"><span>Custo do produto (R$)</span><input type="text" inputmode="decimal" autocomplete="off" data-s="mlo" data-k="custo" data-i="'+id+'" value="'+(o.custo_unit!=null?esc(String(o.custo_unit)):"")+'"></label>'
         +'<label class="f" style="width:100px"><span>Imposto (%)</span><input type="text" inputmode="decimal" autocomplete="off" data-s="mlo" data-k="imposto" data-i="'+id+'" placeholder="'+esc(String(S.tax))+'" value="'+(o.imposto_pct!=null?esc(String(o.imposto_pct)):"")+'"></label>'
