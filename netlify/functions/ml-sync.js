@@ -14,20 +14,33 @@ exports.handler = async () => {
     }
 
     const { accessToken, sellerId } = await getValidAccessToken();
-    const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-    const searchUrl =
-      `https://api.mercadolibre.com/orders/search?seller=${encodeURIComponent(sellerId)}` +
-      `&order.date_created.from=${encodeURIComponent(since)}`;
+    // 90 dias pra tambem atualizar pedidos antigos (ex: com a taxa do ML
+    // recalculada) quando a Ana Paula clicar em "Sincronizar agora".
+    const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+    const limit = 50;
+    let offset = 0;
+    let total = 0;
+    let synced = 0;
 
-    const res = await fetch(searchUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
-    const data = await res.json();
-    const orders = data.results || [];
+    do {
+      const searchUrl =
+        `https://api.mercadolibre.com/orders/search?seller=${encodeURIComponent(sellerId)}` +
+        `&order.date_created.from=${encodeURIComponent(since)}` +
+        `&limit=${limit}&offset=${offset}`;
+      const res = await fetch(searchUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
+      const data = await res.json();
+      const orders = data.results || [];
+      total = (data.paging && data.paging.total) || orders.length;
 
-    for (const order of orders) {
-      await saveOrder(order);
-    }
+      for (const order of orders) {
+        await saveOrder(order);
+        synced++;
+      }
 
-    return { statusCode: 200, body: `Sincronizados ${orders.length} pedidos dos ultimos 7 dias.` };
+      offset += limit;
+    } while (offset < total && offset < 500);
+
+    return { statusCode: 200, body: `Sincronizados ${synced} pedidos dos ultimos 90 dias.` };
   } catch (err) {
     console.error(err);
     return { statusCode: 500, body: 'Erro: ' + String(err) };
