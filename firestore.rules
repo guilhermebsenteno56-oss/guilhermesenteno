@@ -1,0 +1,13 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Só quem conhece o código secreto (PAINEL_ID no index.html) acessa os dados do painel.
+    match /painel/{painelId}/{document=**} {
+      allow read, write: if painelId == "3e2b1d7147b39e43a0c6c88aa1e881bc";
+    }
+    // Todo o resto fica bloqueado.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
