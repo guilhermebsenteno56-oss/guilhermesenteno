@@ -13,6 +13,12 @@ async function saveOrder(order) {
   const total = order.total_amount || 0;
   const shipping = (order.shipping && order.shipping.cost) || 0;
 
+  // Soma a taxa de venda (comissao) que o Mercado Livre cobra em cada item do
+  // pedido. O valor realmente recebido pelo vendedor e o total menos essa taxa.
+  const items = order.order_items || [];
+  const fee = items.reduce((sum, it) => sum + (Number(it.sale_fee) || 0) * (it.quantity || 1), 0);
+  const netReceived = Math.max(0, total - fee);
+
   await setDoc(`painel/${painelId}/ml_orders/${order.id}`, {
     order_id: String(order.id),
     date: dateStr,
@@ -20,6 +26,8 @@ async function saveOrder(order) {
     quantity: item ? item.quantity : 1,
     unit_price: item ? item.unit_price : total,
     total_amount: total,
+    ml_fee: fee,
+    net_received: netReceived,
     shipping_cost: shipping,
     status: order.status || '',
     synced_at: Date.now(),
