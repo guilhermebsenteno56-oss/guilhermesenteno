@@ -32,10 +32,13 @@ exports.handler = async () => {
       const orders = data.results || [];
       total = (data.paging && data.paging.total) || orders.length;
 
-      for (const order of orders) {
-        await saveOrder(order);
-        synced++;
-      }
+      // Busca em paralelo (cada pedido precisa de 2 chamadas extras na API
+      // do ML pra pegar a taxa e o custo do frete), senao demora demais e
+      // a funcao pode estourar o tempo limite.
+      const results = await Promise.allSettled(
+        orders.map((order) => saveOrder(order.id, accessToken))
+      );
+      synced += results.filter((r) => r.status === 'fulfilled').length;
 
       offset += limit;
     } while (offset < total && offset < 500);

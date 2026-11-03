@@ -10,11 +10,8 @@ exports.handler = async (event) => {
       return { statusCode: 200, body: 'ok' };
     }
     const { accessToken } = await getValidAccessToken();
-    const orderRes = await fetch(`https://api.mercadolibre.com${body.resource}`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    const order = await orderRes.json();
-    await saveOrder(order);
+    const orderId = String(body.resource).split('/').pop();
+    await saveOrder(orderId, accessToken);
     return { statusCode: 200, body: 'ok' };
   } catch (err) {
     console.error(err);
