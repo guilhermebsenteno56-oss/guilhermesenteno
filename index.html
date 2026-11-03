@@ -362,7 +362,7 @@ details .fields{margin-top:12px}
         <button class="primary" id="mlSyncNow" type="button">Sincronizar agora</button>
         <span class="save" id="mlSyncState" role="status" aria-live="polite"></span>
       </div>
-      <p class="hint" style="margin:0 0 12px">Pedidos recebidos automaticamente via Mercado Livre (webhook) ou puxados ao clicar em "Sincronizar agora". Mostra os últimos pedidos; não desconta automaticamente dos cálculos de margem — use como conferência.</p>
+      <p class="hint" style="margin:0 0 12px">Pedidos recebidos automaticamente via Mercado Livre (webhook) ou puxados ao clicar em "Sincronizar agora". Preencha o custo do produto de cada pedido (e o imposto, se quiser usar um valor diferente do padrão configurado em Produtos e parâmetros) para que o lucro entre automaticamente na aba Resumo, somado aos outros canais. Pedidos sem custo preenchido contam nas vendas, mas com lucro zerado até você preencher.</p>
       <div class="hist" id="mlOrdersList"></div>
     </section>
   </div>
@@ -678,6 +678,7 @@ function unitContrib(s){
 }
 function agg(from,to,chf){
   var o={units:0,rev:0,contrib:0,days:0,nodata:0,per:{},cats:{ads:0,func:0,emb:0,outros:0},embIgnored:0};
+  var dayset={};
   Object.keys(S.log).forEach(function(d){
     if(d<from||d>to)return;
     var e=S.log[d],had=false;
@@ -696,8 +697,26 @@ function agg(from,to,chf){
       o.units+=q;o.rev+=q*n(s.price);o.contrib+=q*uc;
       if(!s.ok)o.nodata+=q;
     });
-    if(had)o.days++;
+    if(had)dayset[d]=true;
   });
+  if(chf==="all"||chf==="ml"){
+    mlOrders.forEach(function(ord){
+      var d=String(ord.date||"").slice(0,10);
+      if(!d||d<from||d>to)return;
+      var q=n(ord.quantity)||1,rev=n(ord.total_amount);
+      var hasCusto=ord.custo_unit!==undefined&&ord.custo_unit!==null&&String(ord.custo_unit)!=="";
+      var impostoPct=(ord.imposto_pct!==undefined&&ord.imposto_pct!==null&&String(ord.imposto_pct)!=="")?n(ord.imposto_pct):n(S.tax);
+      var contrib=0;
+      if(hasCusto)contrib=rev-n(ord.custo_unit)*q-rev*impostoPct/100;
+      else o.nodata+=q;
+      var key="mlo:"+(ord.title||ord.order_id);
+      var row=o.per[key]||(o.per[key]={name:ord.title||("Pedido "+ord.order_id),ch:"ml",units:0,rev:0,contrib:0});
+      row.units+=q;row.rev+=rev;row.contrib+=contrib;
+      o.units+=q;o.rev+=rev;o.contrib+=contrib;
+      dayset[d]=true;
+    });
+  }
+  o.days=Object.keys(dayset).length;
   S.costs.forEach(function(c){
     if(c.date<from||c.date>to)return;
     if(chf!=="all"&&c.ch!==chf)return;
@@ -844,7 +863,7 @@ function renderResumo(){
   if(hasPrev)note+=" Os percentuais comparam com o período anterior ("+shortD(pr.from)+" a "+shortD(pr.to)+").";
   if(meta>0)note+=" A meta e a projeção usam o mês atual, até hoje.";
   if(o.embIgnored>0)note+=" "+brl(o.embIgnored)+" lançados como embalagem não foram descontados, porque a embalagem já entra no custo por venda (mude isso em Produtos e parâmetros).";
-  if(o.nodata>0)note+=" Atenção: "+o.nodata+" venda(s) estão sem preço, valor recebido ou custo preenchidos em Produtos e parâmetros, então o lucro delas aparece zerado.";
+  if(o.nodata>0)note+=" Atenção: "+o.nodata+" venda(s) estão sem custo preenchido (em Produtos e parâmetros, ou na aba Pedidos Mercado Livre), então o lucro delas aparece zerado.";
   $("#pnote").textContent=note;
 
   /* por canal */
@@ -943,17 +962,57 @@ function renderAll(){renderProducts();renderResumo();renderHist();renderCosts();
 
 /* ---------- pedidos Mercado Livre (lidos do Firestore) ---------- */
 var mlOrders=[];
+var mlOrdersRenderedKey="";
 var MLSTAT={paid:"Pago",confirmed:"Confirmado",cancelled:"Cancelado",invalid:"Inválido"};
 function mlStatName(s){return MLSTAT[s]||s||"—"}
+function mlOrderList(){return mlOrders.slice().sort(function(a,b){return (b.date||"")<(a.date||"")?-1:(b.date||"")>(a.date||"")?1:0}).slice(0,100)}
+function mlLucroOf(o){
+  var q=n(o.quantity)||1,rev=n(o.total_amount);
+  var hasCusto=o.custo_unit!==undefined&&o.custo_unit!==null&&String(o.custo_unit)!=="";
+  var impostoPct=(o.imposto_pct!==undefined&&o.imposto_pct!==null&&String(o.imposto_pct)!=="")?n(o.imposto_pct):n(S.tax);
+  return{hasCusto:hasCusto,impostoPct:impostoPct,lucro:hasCusto?(rev-n(o.custo_unit)*q-rev*impostoPct/100):null};
+}
 function renderMLOrders(){
   var el=$("#mlOrdersList");if(!el)return;
-  if(!mlOrders.length){el.innerHTML='<div class="hr"><span>Nenhum pedido sincronizado ainda. Clique em "Sincronizar agora".</span></div>';return}
-  var list=mlOrders.slice().sort(function(a,b){return (b.date||"")<(a.date||"")?-1:(b.date||"")>(a.date||"")?1:0}).slice(0,100),h="";
+  var list=mlOrderList();
+  if(!list.length){mlOrdersRenderedKey="";el.innerHTML='<div class="hr"><span>Nenhum pedido sincronizado ainda. Clique em "Sincronizar agora".</span></div>';return}
+  var key=list.map(function(o){return o.order_id}).join(",");
+  if(key!==mlOrdersRenderedKey){
+    mlOrdersRenderedKey=key;
+    var h="";
+    list.forEach(function(o){
+      var dt=o.date?String(o.date).slice(0,10):"";
+      var id=esc(o.order_id);
+      h+='<div class="hr" style="align-items:flex-end">'
+        +'<b>'+(dt?shortD(dt):"—")+'</b>'
+        +'<span style="flex:1 1 220px;min-width:160px">'+esc(o.title||("Pedido "+o.order_id))+" · "+n(o.quantity||1)+" un."+'</span>'
+        +'<span><strong style="color:var(--ink)">'+brl(n(o.total_amount))+'</strong></span>'
+        +'<span>'+esc(mlStatName(o.status))+'</span>'
+        +'<label class="f" style="width:110px"><span>Custo do produto (R$)</span><input type="text" inputmode="decimal" autocomplete="off" data-s="mlo" data-k="custo" data-i="'+id+'" value="'+(o.custo_unit!=null?esc(String(o.custo_unit)):"")+'"></label>'
+        +'<label class="f" style="width:100px"><span>Imposto (%)</span><input type="text" inputmode="decimal" autocomplete="off" data-s="mlo" data-k="imposto" data-i="'+id+'" placeholder="'+esc(String(S.tax))+'" value="'+(o.imposto_pct!=null?esc(String(o.imposto_pct)):"")+'"></label>'
+        +'<span id="mlo-l-'+id+'" style="min-width:110px;text-align:right"></span>'
+        +'</div>';
+    });
+    el.innerHTML=h;
+  }
   list.forEach(function(o){
-    var dt=o.date?String(o.date).slice(0,10):"";
-    h+='<div class="hr"><b>'+(dt?shortD(dt):"—")+'</b><span>'+esc(o.title||("Pedido "+o.order_id))+" · "+n(o.quantity||1)+" un."+'</span><span><strong style="color:var(--ink)">'+brl(n(o.total_amount))+'</strong></span><span>'+esc(mlStatName(o.status))+'</span></div>';
+    var s=$("#mlo-l-"+esc(o.order_id));if(!s)return;
+    var r=mlLucroOf(o);
+    s.innerHTML=r.hasCusto?'<strong style="color:'+(r.lucro<0?"var(--bad)":"var(--ink)")+'">'+brl(r.lucro)+'</strong>':'<span class="hint" style="margin:0">Preencha o custo</span>';
   });
-  el.innerHTML=h;
+}
+function mlOrderSave(id,patch){
+  if(!(cloud&&cloud.uid))return;
+  var c=cloud;
+  c.setDoc(c.doc(c.db,"painel",c.uid,"ml_orders",id),patch,{merge:true}).catch(function(){});
+}
+var mlOrderTimers={};
+function mlOrderScheduleSave(id,key,val){
+  clearTimeout(mlOrderTimers[id]);
+  mlOrderTimers[id]=setTimeout(function(){
+    var patch={};patch[key]=val===""?null:val;
+    mlOrderSave(id,patch);
+  },500);
 }
 
 /* ---------- salvar ---------- */
@@ -1066,6 +1125,15 @@ document.addEventListener("input",function(e){
   var t=e.target,d=t.dataset;
   if(!d||!d.s)return;
   if(d.s==="d"){setDirty(true);return}
+  if(d.s==="mlo"){
+    var ord=null;mlOrders.forEach(function(o){if(o.order_id===d.i)ord=o});
+    if(!ord)return;
+    var key=d.k==="custo"?"custo_unit":"imposto_pct";
+    ord[key]=t.value;
+    renderMLOrders();renderResumo();
+    mlOrderScheduleSave(d.i,key,t.value);
+    return;
+  }
   if(d.s==="p"){
     S.products.forEach(function(p){if(p.id===d.i)p[d.k]=t.value});
     if(d.k==="name"){var lb=$("#u-"+d.i);if(lb&&lb.previousElementSibling)lb.previousElementSibling.textContent=(t.value||"Produto sem nome")+" (vendas)"}
