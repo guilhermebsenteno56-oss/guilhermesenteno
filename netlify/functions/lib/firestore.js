@@ -104,9 +104,20 @@ async function getDoc(path) {
   return fromFirestoreFields(data.fields);
 }
 
-async function setDoc(path, obj) {
+async function setDoc(path, obj, options) {
   const { accessToken, projectId } = await getAccessToken();
-  const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/${path}`;
+  let url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/(default)/documents/${path}`;
+  // merge:true faz um PATCH parcial (so os campos passados em obj sao
+  // gravados; os demais campos que ja existiam no documento continuam la).
+  // Sem isso, um PATCH do Firestore sobrescreve o documento inteiro -- e era
+  // isso que apagava o custo/imposto que o usuario preenchia manualmente
+  // toda vez que o pedido era sincronizado de novo.
+  if (options && options.merge) {
+    const mask = Object.keys(obj)
+      .map((k) => `updateMask.fieldPaths=${encodeURIComponent(k)}`)
+      .join('&');
+    url += `?${mask}`;
+  }
   const res = await fetch(url, {
     method: 'PATCH',
     headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },

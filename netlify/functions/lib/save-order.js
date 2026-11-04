@@ -63,19 +63,28 @@ async function saveOrder(orderId, accessToken) {
   // e menos o frete que o vendedor paga.
   const netReceived = Math.max(0, total - fee - shippingCost);
 
-  await setDoc(`painel/${painelId}/ml_orders/${order.id}`, {
-    order_id: String(order.id),
-    date: dateStr,
-    title: item && item.item ? item.item.title : '',
-    quantity: item ? item.quantity : 1,
-    unit_price: item ? item.unit_price : total,
-    total_amount: total,
-    ml_fee: fee,
-    shipping_cost: shippingCost,
-    net_received: netReceived,
-    status: order.status || '',
-    synced_at: Date.now(),
-  });
+  // merge:true: isso nunca mexe no custo_unit/imposto_pct que o usuario
+  // preencheu na aba "Pedidos Mercado Livre" -- so atualiza os campos que
+  // vem da API do Mercado Livre. Antes, um PATCH sem updateMask sobrescrevia
+  // o documento inteiro e apagava o custo toda vez que o pedido era
+  // sincronizado de novo.
+  await setDoc(
+    `painel/${painelId}/ml_orders/${order.id}`,
+    {
+      order_id: String(order.id),
+      date: dateStr,
+      title: item && item.item ? item.item.title : '',
+      quantity: item ? item.quantity : 1,
+      unit_price: item ? item.unit_price : total,
+      total_amount: total,
+      ml_fee: fee,
+      shipping_cost: shippingCost,
+      net_received: netReceived,
+      status: order.status || '',
+      synced_at: Date.now(),
+    },
+    { merge: true }
+  );
 }
 
 module.exports = { saveOrder };
