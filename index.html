@@ -362,7 +362,8 @@ details .fields{margin-top:12px}
         <button class="primary" id="mlSyncNow" type="button">Sincronizar agora</button>
         <span class="save" id="mlSyncState" role="status" aria-live="polite"></span>
       </div>
-      <p class="hint" style="margin:0 0 12px">Pedidos recebidos automaticamente via Mercado Livre (webhook) ou puxados ao clicar em "Sincronizar agora". Cada pedido mostra o valor pago pelo cliente e o valor que você realmente recebe (já descontando a taxa do Mercado Livre). Preencha o custo do produto de cada pedido (e o imposto, se quiser usar um valor diferente do padrão configurado em Produtos e parâmetros) para que o lucro — calculado sobre o valor recebido — entre automaticamente na aba Resumo, somado aos outros canais, no mês em que a venda aconteceu. Pedidos sem custo preenchido contam nas vendas, mas com lucro zerado até você preencher.</p>
+      <p class="hint" style="margin:0 0 12px">Pedidos recebidos automaticamente via Mercado Livre (webhook) ou puxados ao clicar em "Sincronizar agora". Cada pedido mostra o valor pago pelo cliente e o valor que você realmente recebe (já com todas as taxas e o frete descontados, igual aparece em "Detalhes da venda" no Mercado Livre). Preencha o custo do produto de cada pedido (e o imposto, se quiser usar um valor diferente do padrão configurado em Produtos e parâmetros) para que o lucro — calculado sobre o valor recebido — entre automaticamente na aba Resumo, somado aos outros canais, no mês em que a venda aconteceu. Pedidos sem custo preenchido contam nas vendas, mas com lucro zerado até você preencher. Escolha um mês abaixo pra ver os pedidos dele.</p>
+      <div class="seg" role="group" aria-label="Mês" id="mlMonthBar" style="margin-bottom:12px"></div>
       <div class="hist" id="mlOrdersList"></div>
     </section>
   </div>
@@ -964,9 +965,30 @@ function renderAll(){renderProducts();renderResumo();renderHist();renderCosts();
 /* ---------- pedidos Mercado Livre (lidos do Firestore) ---------- */
 var mlOrders=[];
 var mlOrdersRenderedKey="";
+var mlMonth=monthKey(todayStr());
+var mlMonthBarKey="";
 var MLSTAT={paid:"Pago",confirmed:"Confirmado",cancelled:"Cancelado",invalid:"Inválido"};
 function mlStatName(s){return MLSTAT[s]||s||"—"}
-function mlOrderList(){return mlOrders.slice().sort(function(a,b){return (b.date||"")<(a.date||"")?-1:(b.date||"")>(a.date||"")?1:0}).slice(0,100)}
+var MNAME=["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"];
+function mlMonthLabel(k){var a=k.split("-");return MNAME[+a[1]-1]+"/"+a[0].slice(2)}
+function mlMonthsAvailable(){
+  var set={};set[mlMonth]=true;
+  mlOrders.forEach(function(o){if(o.date)set[monthKey(o.date)]=true});
+  return Object.keys(set).sort().reverse();
+}
+function renderMLMonthBar(){
+  var el=$("#mlMonthBar");if(!el)return;
+  var months=mlMonthsAvailable();
+  var key=months.join(",")+"|"+mlMonth;
+  if(key===mlMonthBarKey)return;
+  mlMonthBarKey=key;
+  el.innerHTML=months.map(function(k){
+    return '<button type="button" data-mlm="'+k+'" aria-pressed="'+(k===mlMonth?"true":"false")+'">'+mlMonthLabel(k)+'</button>';
+  }).join("");
+}
+function mlOrderList(){
+  return mlOrders.filter(function(o){return o.date&&monthKey(o.date)===mlMonth}).sort(function(a,b){return (b.date||"")<(a.date||"")?-1:(b.date||"")>(a.date||"")?1:0})
+}
 function mlRecebidoOf(o){return(o.net_received!==undefined&&o.net_received!==null)?n(o.net_received):n(o.total_amount)}
 function mlLucroOf(o){
   var q=n(o.quantity)||1,recebido=mlRecebidoOf(o);
@@ -976,8 +998,9 @@ function mlLucroOf(o){
 }
 function renderMLOrders(){
   var el=$("#mlOrdersList");if(!el)return;
+  renderMLMonthBar();
   var list=mlOrderList();
-  if(!list.length){mlOrdersRenderedKey="";el.innerHTML='<div class="hr"><span>Nenhum pedido sincronizado ainda. Clique em "Sincronizar agora".</span></div>';return}
+  if(!list.length){mlOrdersRenderedKey="";el.innerHTML='<div class="hr"><span>Nenhum pedido em '+mlMonthLabel(mlMonth)+'. Clique em "Sincronizar agora" ou escolha outro mês.</span></div>';return}
   var key=list.map(function(o){return o.order_id}).join(",");
   if(key!==mlOrdersRenderedKey){
     mlOrdersRenderedKey=key;
@@ -1150,6 +1173,9 @@ document.addEventListener("click",function(e){
   var t=e.target,d=t.dataset||{};
   if(d.per||d.chf){
     var sel=d.per?$("#per"):$("#chf");sel.value=d.per||d.chf;sel.dispatchEvent(new Event("change"));return;
+  }
+  if(d.mlm){
+    mlMonth=d.mlm;mlOrdersRenderedKey="";mlMonthBarKey="";renderMLOrders();return;
   }
   if(d.tab){
     var bs=document.querySelectorAll(".nav button");
