@@ -37,10 +37,15 @@ async function saveOrder(orderId, accessToken) {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   const order = await res.json();
-  if (!order || !order.id) return;
+  if (!res.ok || !order || !order.id) {
+    // Antes isso falhava em silencio (o pedido ficava com os dados antigos,
+    // sem taxa/frete, sem avisar ninguem). Agora avisa, pra podermos ver
+    // no log quando a API do ML limitar as chamadas.
+    throw new Error(`Pedido ${orderId}: resposta invalida da API (status ${res.status}): ${JSON.stringify(order).slice(0, 200)}`);
+  }
 
   const dateStr = (order.date_created || '').slice(0, 10);
-  if (!dateStr) return;
+  if (!dateStr) throw new Error(`Pedido ${orderId}: sem date_created.`);
 
   const item = order.order_items && order.order_items[0];
   const total = order.total_amount || 0;
