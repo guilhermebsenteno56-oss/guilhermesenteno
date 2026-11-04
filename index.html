@@ -1032,6 +1032,29 @@ function mlOrderSave(id,patch){
   var c=cloud;
   c.setDoc(c.doc(c.db,"painel",c.uid,"ml_orders",id),patch,{merge:true}).catch(function(){});
 }
+// Pedido novo (ou recem-sincronizado) sem custo preenchido: puxa o ultimo
+// custo/imposto que o usuario ja cadastrou pra um pedido de titulo IGUAL.
+// Continua editavel normalmente (o usuario pode mudar o valor puxado).
+function mlAutoFillCosts(){
+  var byTitle={};
+  mlOrders.forEach(function(o){
+    if(!o.title)return;
+    var hasCusto=o.custo_unit!==undefined&&o.custo_unit!==null&&String(o.custo_unit)!=="";
+    if(!hasCusto)return;
+    var prev=byTitle[o.title];
+    if(!prev||(o.date||"")>=(prev.date||""))byTitle[o.title]={custo_unit:o.custo_unit,imposto_pct:o.imposto_pct,date:o.date||""};
+  });
+  mlOrders.forEach(function(o){
+    if(!o.title)return;
+    var hasCusto=o.custo_unit!==undefined&&o.custo_unit!==null&&String(o.custo_unit)!=="";
+    if(hasCusto)return;
+    var m=byTitle[o.title];if(!m)return;
+    o.custo_unit=m.custo_unit;
+    var patch={custo_unit:m.custo_unit};
+    if((o.imposto_pct===undefined||o.imposto_pct===null)&&m.imposto_pct!=null){o.imposto_pct=m.imposto_pct;patch.imposto_pct=m.imposto_pct}
+    mlOrderSave(o.order_id,patch);
+  });
+}
 var mlOrderTimers={};
 function mlOrderScheduleSave(id,key,val){
   clearTimeout(mlOrderTimers[id]);
@@ -1129,7 +1152,7 @@ function startListeners(){
     var m={};snap.docs.forEach(function(d){m[d.id]=d.data()});remoteMonths=m;maybeApply();
   },onErr));
   unsubs.push(c.onSnapshot(c.collection(c.db,"painel",c.uid,"ml_orders"),function(snap){
-    var arr=[];snap.docs.forEach(function(d){arr.push(d.data())});mlOrders=arr;renderMLOrders();
+    var arr=[];snap.docs.forEach(function(d){arr.push(d.data())});mlOrders=arr;mlAutoFillCosts();renderMLOrders();renderResumo();
   },function(e){setStatus("Erro ao ler pedidos do Mercado Livre ("+((e&&(e.code||e.message))||"desconhecido")+").")}));
 }
 function initCloud(){
