@@ -49,7 +49,10 @@ exports.handler = async () => {
     }
 
     const { accessToken, sellerId } = await getValidAccessToken();
-    const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+    // So os ultimos 35 dias (mes atual + mes anterior) no clique manual, pra
+    // sempre terminar dentro do tempo que a funcao tem disponivel. Pedidos
+    // mais antigos ja foram sincronizados antes; o webhook cobre os novos.
+    const since = new Date(Date.now() - 35 * 24 * 60 * 60 * 1000).toISOString();
     const limit = 50;
     let offset = 0;
     let total = 0;
@@ -69,15 +72,15 @@ exports.handler = async () => {
       const { ok, failed } = await saveOrdersInBatches(
         orders.map((o) => o.id),
         accessToken,
-        8
+        10
       );
       synced += ok;
       allFailed.push(...failed);
 
       offset += limit;
-    } while (offset < total && offset < 500);
+    } while (offset < total && offset < 200);
 
-    const msg = `Sincronizados ${synced} pedidos dos ultimos 90 dias.` +
+    const msg = `Sincronizados ${synced} pedidos dos ultimos 35 dias.` +
       (allFailed.length ? ` ${allFailed.length} pedido(s) falharam e serao tentados na proxima sincronizacao.` : '');
     if (allFailed.length) console.error('Pedidos que falharam:', allFailed);
     return { statusCode: 200, body: msg };
